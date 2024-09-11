@@ -36,9 +36,9 @@ Individual pixels are predicted using pixels from the monthly per images (72 ima
 The Root Mean Square Error (RMSE) for each month is calculated against the real images of 2024. 
 
 ## 7. extra codes : 
-   7.1  to generate graphs to visualize trends monthly and yearly
-     
-   7.2 to generate missing dates from the GEE, the missing dates where the erath engine could not capture images for that day. (unavailability of datset for that day from the date range specified)
+   7.1  to generate graphs to visualize trends monthly 
+   7.2  to generate graphs to visualize trends yearly     
+   7.3 to generate missing dates from the GEE, the missing dates where the erath engine could not capture images for that day. (unavailability of datset for that day from the date range specified)
 
 1.  **Data Collection**.
 ```console
@@ -675,7 +675,7 @@ main_directory = r"C:\Users\Wajeeha\Desktop\NP"
 process_images(main_directory, roi_coords)
 ```
 
- **3.3 sobel gradient for 6 yearly images (2018-2023)**
+ **3.3 sobel gradient for 6 yearly images (2019-2024)**
 
 ```console
 import os
@@ -1159,73 +1159,141 @@ print(f"Maximum pixel value for actual image: {metrics['max_actual']}")
 
 ## 7. Extra Codes
 *7.1 graphical representation of deviations in methane Concentrartion using scatter plot graph. 
+
 ```console
 import os
 import numpy as np
 import tifffile as tf
 import matplotlib.pyplot as plt
-from sklearn.mixture import GaussianMixture
 
-def load_monthly_images(main_directory, start_year, end_year):
-    """Load monthly TIFF images for the specified year range."""
+def load_images(directory, year_range):
+    """Load TIFF images for the specified year range, excluding July 2024."""
     images = []
-    for year in range(start_year, end_year + 1):
+    for year in year_range:
+        year_dir = os.path.join(directory, str(year))
         for month in range(1, 13):
-            if year == 2018 and month < 11:
-                continue  # Skip months before November 2018
-            file_path = os.path.join(main_directory, f"{year}", f"{year}-{month:02d}.tif")
+            if year == 2024 and month == 7:
+                continue  # Skip July 2024
+            file_path = os.path.join(year_dir, f"{year}-{month:02d}.tif")
             if os.path.exists(file_path):
+                print(f"Loading image for {year}-{month:02d}")  # Debugging print
                 image = tf.imread(file_path)
                 images.append((year, month, image))
+            else:
+                print(f"Image not found for {year}-{month:02d}")  # Debugging print
+                images.append((year, month, None))
     return images
 
-def fit_gmm(pixel_values, n_components=2):
-    """Fit a Gaussian Mixture Model to the pixel values."""
-    gmm = GaussianMixture(n_components=n_components, random_state=0)
-    gmm.fit(pixel_values.reshape(-1, 1))
-    return gmm
-
-def generate_combined_histogram(images):
-    """Generate a combined histogram for the pixel values of monthly images with GMM fit."""
-    colors = plt.cm.get_cmap('tab20', 12)  # Get a colormap with 12 distinct colors
-    combined_pixel_values = {i: [] for i in range(1, 13)}
-    
+def calculate_monthly_means(images):
+    """Calculate the mean CH4 density for each month across all years."""
+    monthly_means = {month: [] for month in range(1, 13)}
     for year, month, image in images:
         if image is not None:
-            combined_pixel_values[month].extend(image.flatten())
+            mean_ch4_density = np.nanmean(image)  # Use np.nanmean to handle NaN values
+            print(f"Mean CH4 for {year}-{month:02d}: {mean_ch4_density}")  # Print mean value
+            monthly_means[month].append(mean_ch4_density)
+        else:
+            print(f"No data for {year}-{month:02d}")  # Debugging print
+            monthly_means[month].append(np.nan)
+    return monthly_means
+
+def plot_monthly_trends(monthly_means, year_range):
+    """Plot the trends of mean CH4 density for each month, excluding July 2024."""
+    months = ['January', 'February', 'March', 'April', 'May', 'June',
+              'August', 'September', 'October', 'November', 'December']  # Exclude July
     
-    plt.figure(figsize=(14, 8))
-    
-    for month in range(1, 13):
-        pixel_values = np.array(combined_pixel_values[month])
-        plt.hist(pixel_values, bins=50, color=colors(month - 1), alpha=0.6, label=f'Month {month}', density=True)
-        
-        if len(pixel_values) > 0:
-            gmm = fit_gmm(pixel_values)
-            x = np.linspace(pixel_values.min(), pixel_values.max(), 1000).reshape(-1, 1)
-            logprob = gmm.score_samples(x)
-            pdf = np.exp(logprob)
-            plt.plot(x, pdf, color=colors(month - 1), linewidth=2)
-    
-    plt.title('Combined Pixel Value Histogram for Months from Nov 2018 to Dec 2023 with GMM Fit')
-    plt.xlabel('Pixel Value')
-    plt.ylabel('Density')
-    plt.legend(loc='upper right')
+    # Prepare data for plotting
+    all_year_means = {year: [] for year in year_range}
+
+    for month in range(1, 13):  # Include all months in calculations
+        if month == 7:
+            continue  # Skip July
+        means = monthly_means[month]
+        for index, year in enumerate(year_range):
+            if len(means) > index:
+                mean_value = means[index]
+                all_year_means[year].append(mean_value)
+            else:
+                all_year_means[year].append(np.nan)  # Handle months with no data
+
+    # Plotting
+    plt.figure(figsize=(15, 8))
+    for year in year_range:
+        plt.plot(months, all_year_means[year], marker='o', label=f'Year {year}')
+
+    plt.title('Mean CH4 column volume mixing ratio in dry air, Trends from 2019 to 2024 (Excluding July 2024)')
+    plt.xlabel('Month')
+    plt.ylabel('CH4 column volume mixing ratio dry air (as parts-per-billion)')
+    plt.legend()
     plt.grid(True)
     plt.show()
 
-# Main directory
-main_directory = r"C:\Users\Wajeeha\Desktop\predictions LR"
+# Directories
+main_directory = r"C:\Users\Wajeeha\Desktop\NP"
 
-# Year range
-start_year = 2018
-end_year = 2023
+# Load all historical images (2019-2024)
+year_range = range(2019, 2025)
+images = load_images(main_directory, year_range)
 
-# Load monthly TIFF images
-images = load_monthly_images(main_directory, start_year, end_year)
+# Calculate monthly means
+monthly_means = calculate_monthly_means(images)
 
-# Generate combined histogram
-generate_combined_histogram(images)
+# Plot the trends
+plot_monthly_trends(monthly_means, year_range)
+```
+
+  *7.1 graphical representation of deviations in methane Concentrartion using scatter plot graph for yearly.
+```console
+import os
+import numpy as np
+import tifffile as tf
+import matplotlib.pyplot as plt
+
+def load_yearly_images(directory, year_range):
+    """Load yearly TIFF images for the specified year range."""
+    yearly_means = {}
+    for year in year_range:
+        file_path = os.path.join(directory, f"{year}_yearly_average.tif")
+        if os.path.exists(file_path):
+            print(f"Loading yearly image for {year}")  # Debugging print
+            image = tf.imread(file_path)
+            mean_ch4_density = np.nanmean(image)  # Use np.nanmean to handle NaN values
+            yearly_means[year] = mean_ch4_density
+            print(f"Mean CH4 for {year}: {mean_ch4_density}")  # Print mean value
+        else:
+            print(f"Image not found for {year}")  # Debugging print
+            yearly_means[year] = None
+    return yearly_means
+
+def plot_yearly_trends(yearly_means):
+    """Plot the trends of mean CH4 density for each year."""
+    years = list(yearly_means.keys())
+    means = [yearly_means[year] for year in years]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(years, means, marker='o', linestyle='-', color='b')
+    plt.title('Mean CH4 Column Volume Mixing Ratio in Dry Air (2019-2024)')
+    plt.xlabel('Year')
+    plt.ylabel('CH4 Column Volume Mixing Ratio Dry Air (parts-per-billion)')
+    plt.grid(True)
+    plt.show()
+
+# Directory containing the yearly average images
+main_directory = r"C:\Users\Wajeeha\Desktop\NP\yeraly averages"
+
+# Year range from 2019 to 2024
+year_range = range(2019, 2025)
+
+# Load all yearly average images and calculate mean CH4 density
+yearly_means = load_yearly_images(main_directory, year_range)
+
+# Plot the yearly trends
+plot_yearly_trends(yearly_means)
+
+# Print the mean CH4 densities for each year
+print("Mean CH4 Densities for Each Year:")
+for year, mean_density in yearly_means.items():
+    print(f"{year}: {mean_density}")
 ```
 
 **7.2 generating missing dates**
@@ -1244,39 +1312,55 @@ roi = ee.Geometry.Polygon(
       [50.717442, 26.226590],
       [51.693314, 26.226590]]])
 
-def check_dataset_availability(start_date, end_date):
+def check_dataset_availability(start_date, end_date, extra_start_date=None, extra_end_date=None):
     # Convert start and end dates to datetime objects
     start_datetime = datetime.datetime.strptime(start_date, '%Y-%m-%d')
     end_datetime = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-    # Create a list to store missing dates
+    # List to store missing dates
     missing_dates = []
 
-    # Iterate over each day in the specified period
-    current_date = start_datetime
-    while current_date < end_datetime:
-        # Convert the current date to string
-        current_date_str = current_date.strftime('%Y-%m-%d')
+    # Function to check missing dates for a given period
+    def check_period(start_dt, end_dt):
+        current_date = start_dt
+        while current_date < end_dt:
+            current_date_str = current_date.strftime('%Y-%m-%d')
 
-        # Sentinel-5P CO dataset
-        collection = (ee.ImageCollection("COPERNICUS/S5P/NRTI/L3_CO")
-                      .filterBounds(roi)
-                      .filterDate(ee.Date(current_date_str), ee.Date(current_date_str).advance(1, 'day'))
-                      .select('CO_column_number_density'))
+            # Sentinel-5P CH4 dataset (Offline)
+            collection = (ee.ImageCollection("COPERNICUS/S5P/OFFL/L3_CH4")
+                          .filterBounds(roi)
+                          .filterDate(ee.Date(current_date_str), ee.Date(current_date_str).advance(1, 'day'))
+                          .select('CH4_column_volume_mixing_ratio_dry_air'))
 
-        # Check if collection is empty
-        if collection.size().getInfo() == 0:
-            missing_dates.append(current_date_str)
+            # Check if collection is empty
+            if collection.size().getInfo() == 0:
+                missing_dates.append(current_date_str)
 
-        # Move to the next day
-        current_date += datetime.timedelta(days=1)
+            # Move to the next day
+            current_date += datetime.timedelta(days=1)
+
+    # Check for missing dates within the specified period
+    check_period(start_datetime, end_datetime)
+
+    # If extra periods are provided, check those as well
+    if extra_start_date and extra_end_date:
+        extra_start_datetime = datetime.datetime.strptime(extra_start_date, '%Y-%m-%d')
+        extra_end_datetime = datetime.datetime.strptime(extra_end_date, '%Y-%m-%d')
+        check_period(extra_start_datetime, extra_end_datetime)
 
     return missing_dates
-# Define the time range
-start_date = '2018-11-22'
-end_date = '2023-12-31'
+
+# Define the main time range
+start_date = '2019-02-08'
+end_date = '2024-07-30'
+
+# Define an additional period to check for missing data outside the main period
+extra_start_date = '2024-08-01'
+extra_end_date = '2024-08-31'
+
 # Check dataset availability
-missing_dates = check_dataset_availability(start_date, end_date)
+missing_dates = check_dataset_availability(start_date, end_date, extra_start_date, extra_end_date)
+
 # Print missing dates
 if missing_dates:
     print("Missing dates:")
@@ -1284,4 +1368,5 @@ if missing_dates:
         print(date)
 else:
     print("No missing dates.")
+
 ```
